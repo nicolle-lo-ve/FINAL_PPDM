@@ -11,7 +11,8 @@ import com.lasalle.mercadosaludable.data.repository.AppRepository
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel para manejar la autenticación de usuarios
+ * ViewModel para manejar la autenticación de usuarios.
+ * MODIFICADO: Sincroniza automáticamente recetas desde Firebase al hacer login.
  */
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -24,6 +25,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     // LiveData para mensajes de error
     private val _errorMessage = MutableLiveData<String>()
     val errorMessage: LiveData<String> = _errorMessage
+
+    // NUEVO: LiveData para progreso de sincronización
+    private val _syncProgress = MutableLiveData<String>()
+    val syncProgress: LiveData<String> = _syncProgress
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -70,6 +75,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _authState.value = AuthState.Loading
+        _syncProgress.value = "Creando cuenta..."
 
         viewModelScope.launch {
             try {
@@ -96,20 +102,30 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val result = repository.registerUser(email, password, user)
 
                 if (result.isSuccess) {
-                    _authState.value = AuthState.Authenticated(result.getOrNull()!!)
+                    val userId = result.getOrNull()!!
+
+                    // NUEVO: Sincronizar recetas después del registro
+                    _syncProgress.value = "Cargando recetas saludables..."
+                    repository.syncRecipesFromFirebase()
+
+                    _authState.value = AuthState.Authenticated(userId)
+                    _syncProgress.value = ""
                 } else {
                     _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Error al registrar")
                     _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al registrar"
+                    _syncProgress.value = ""
                 }
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.message ?: "Error desconocido")
                 _errorMessage.value = e.message ?: "Error desconocido"
+                _syncProgress.value = ""
             }
         }
     }
 
     /**
-     * Inicia sesión con email y contraseña
+     * Inicia sesión con email y contraseña.
+     * MODIFICADO: Sincroniza automáticamente recetas desde Firebase.
      */
     fun login(email: String, password: String) {
         if (email.isBlank() || password.isBlank()) {
@@ -118,20 +134,30 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _authState.value = AuthState.Loading
+        _syncProgress.value = "Iniciando sesión..."
 
         viewModelScope.launch {
             try {
+                // Login en repository (ya incluye sincronización de recetas)
                 val result = repository.loginUser(email, password)
 
                 if (result.isSuccess) {
-                    _authState.value = AuthState.Authenticated(result.getOrNull()!!)
+                    val userId = result.getOrNull()!!
+
+                    // El repository ya sincronizó las recetas automáticamente
+                    _syncProgress.value = "Cargando datos..."
+
+                    _authState.value = AuthState.Authenticated(userId)
+                    _syncProgress.value = ""
                 } else {
                     _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Error al iniciar sesión")
                     _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al iniciar sesión"
+                    _syncProgress.value = ""
                 }
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.message ?: "Error desconocido")
                 _errorMessage.value = e.message ?: "Error desconocido"
+                _syncProgress.value = ""
             }
         }
     }

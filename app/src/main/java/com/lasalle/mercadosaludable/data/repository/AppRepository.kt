@@ -1,5 +1,6 @@
 package com.lasalle.mercadosaludable.data.repository
 
+import android.util.Log
 import androidx.lifecycle.LiveData
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -11,8 +12,12 @@ import kotlinx.coroutines.tasks.await
 
 /**
  * Repositorio que maneja todas las operaciones de datos.
- * Actúa como capa de abstracción entre los ViewModels y las fuentes de datos
- * (Room local y Firebase remoto).
+ * Implementa sincronización bidireccional entre Room (local) y Firebase (remoto).
+ *
+ * ESTRATEGIA DE SINCRONIZACIÓN:
+ * - Recetas: Se guardan en Firestore y se cachean en Room
+ * - Al iniciar app: Se cargan recetas desde Firestore
+ * - Menús: Se generan usando recetas de Room (más rápido)
  */
 class AppRepository(private val database: AppDatabase) {
 
@@ -25,7 +30,15 @@ class AppRepository(private val database: AppDatabase) {
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance()
 
+    // Constantes
+    companion object {
+        private const val TAG = "AppRepository"
+        private const val USERS_COLLECTION = "users"
+        private const val RECIPES_COLLECTION = "recipes"
+        private const val MENU_PLANS_COLLECTION = "menu_plans"
+    }
 
+    // ==================== USER OPERATIONS ====================
 
     /**
      * Registra un nuevo usuario en Firebase Auth y guarda su perfil
@@ -46,6 +59,7 @@ class AppRepository(private val database: AppDatabase) {
 
             Result.success(userId)
         } catch (e: Exception) {
+            Log.e(TAG, "Error registering user", e)
             Result.failure(e)
         }
     }
@@ -61,8 +75,12 @@ class AppRepository(private val database: AppDatabase) {
             // Sincronizar datos desde Firebase
             syncUserFromFirebase(userId)
 
+            // Cargar recetas desde Firebase al hacer login
+            syncRecipesFromFirebase()
+
             Result.success(userId)
         } catch (e: Exception) {
+            Log.e(TAG, "Error logging in", e)
             Result.failure(e)
         }
     }
@@ -94,13 +112,13 @@ class AppRepository(private val database: AppDatabase) {
      */
     private suspend fun syncUserToFirebase(user: User) {
         try {
-            firestore.collection("users")
+            firestore.collection(USERS_COLLECTION)
                 .document(user.id)
                 .set(user)
                 .await()
+            Log.d(TAG, "User synced to Firebase: ${user.id}")
         } catch (e: Exception) {
-            // Log error pero no fallar la operación local
-            e.printStackTrace()
+            Log.e(TAG, "Error syncing user to Firebase", e)
         }
     }
 
@@ -109,23 +127,24 @@ class AppRepository(private val database: AppDatabase) {
      */
     private suspend fun syncUserFromFirebase(userId: String) {
         try {
-            val document = firestore.collection("users")
+            val document = firestore.collection(USERS_COLLECTION)
                 .document(userId)
                 .get()
                 .await()
 
             document.toObject(User::class.java)?.let { user ->
                 userDao.insertUser(user)
+                Log.d(TAG, "User synced from Firebase: $userId")
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Error syncing user from Firebase", e)
         }
     }
 
-    // ==================== RECIPE OPERATIONS ====================
+    // ==================== RECIPE OPERATIONS (CON FIREBASE) ====================
 
     /**
-     * Obtiene todas las recetas como LiveData
+     * Obtiene todas las recetas como LiveData (desde Room)
      */
     fun getAllRecipes(): LiveData<List<Recipe>> {
         return recipeDao.getAllRecipes()
@@ -174,31 +193,184 @@ class AppRepository(private val database: AppDatabase) {
     }
 
     /**
-     * Inserta recetas de ejemplo en la base de datos
+     * NUEVO: Guarda una receta en Firebase y Room
+     */
+    suspend fun saveRecipeToFirebase(recipe: Recipe): Result<String> {
+        return try {
+            // 1. Guardar en Room primero (para obtener ID)
+            val recipeId = recipeDao.insertRecipe(recipe)
+            val recipeWithId = recipe.copy(id = recipeId)
+
+            // 2. Guardar en Firebase con el ID de Room
+            val recipeMap = recipeToMap(recipeWithId)
+            firestore.collection(RECIPES_COLLECTION)
+                .document(recipeId.toString())
+                .set(recipeMap)
+                .await()
+
+            Log.d(TAG, "Recipe saved to Firebase: $recipeId")
+            Result.success(recipeId.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving recipe to Firebase", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * NUEVO: Sincroniza recetas desde Firebase a Room
+     * Se ejecuta automáticamente al hacer login
+     */
+    suspend fun syncRecipesFromFirebase(): Result<Int> {
+        return try {
+            Log.d(TAG, "Syncing recipes from Firebase...")
+
+            val snapshot = firestore.collection(RECIPES_COLLECTION)
+                .get()
+                .await()
+
+            if (snapshot.isEmpty) {
+                Log.d(TAG, "No recipes in Firebase, inserting sample recipes")
+                // Si no hay recetas en Firebase, insertar las de ejemplo
+                insertSampleRecipes()
+                return Result.success(0)
+            }
+
+            val recipes = mutableListOf<Recipe>()
+            for (document in snapshot.documents) {
+                try {
+                    val recipe = mapToRecipe(document.data ?: continue)
+                    recipes.add(recipe)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing recipe: ${document.id}", e)
+                }
+            }
+
+            if (recipes.isNotEmpty()) {
+                recipeDao.insertAllRecipes(recipes)
+                Log.d(TAG, "Synced ${recipes.size} recipes from Firebase")
+            }
+
+            Result.success(recipes.size)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing recipes from Firebase", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Inserta recetas de ejemplo en Room Y Firebase
      */
     suspend fun insertSampleRecipes() {
-        val sampleRecipes = getSampleRecipes()
-        recipeDao.insertAllRecipes(sampleRecipes)
+        try {
+            val sampleRecipes = getSampleRecipes()
+
+            // Guardar localmente
+            recipeDao.insertAllRecipes(sampleRecipes)
+
+            // Guardar en Firebase (batch write para eficiencia)
+            val batch = firestore.batch()
+            sampleRecipes.forEach { recipe ->
+                val recipeMap = recipeToMap(recipe)
+                val docRef = firestore.collection(RECIPES_COLLECTION).document(recipe.id.toString())
+                batch.set(docRef, recipeMap)
+            }
+            batch.commit().await()
+
+            Log.d(TAG, "Sample recipes inserted in Room and Firebase")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting sample recipes", e)
+        }
+    }
+
+    /**
+     * Convierte una receta a Map para Firebase
+     */
+    private fun recipeToMap(recipe: Recipe): Map<String, Any> {
+        return hashMapOf(
+            "id" to recipe.id,
+            "name" to recipe.name,
+            "description" to recipe.description,
+            "category" to recipe.category,
+            "imageUrl" to recipe.imageUrl,
+            "calories" to recipe.calories,
+            "protein" to recipe.protein,
+            "carbohydrates" to recipe.carbohydrates,
+            "fats" to recipe.fats,
+            "fiber" to recipe.fiber,
+            "sodium" to recipe.sodium,
+            "sugar" to recipe.sugar,
+            "suitableFor" to recipe.suitableFor,
+            "ingredients" to recipe.ingredients,
+            "instructions" to recipe.instructions,
+            "preparationTime" to recipe.preparationTime,
+            "difficulty" to recipe.difficulty,
+            "servings" to recipe.servings,
+            "estimatedCost" to recipe.estimatedCost,
+            "allergens" to recipe.allergens,
+            "rating" to recipe.rating,
+            "timesUsed" to recipe.timesUsed,
+            "createdAt" to recipe.createdAt
+        )
+    }
+
+    /**
+     * Convierte un Map de Firebase a Recipe
+     */
+    private fun mapToRecipe(map: Map<String, Any>): Recipe {
+        return Recipe(
+            id = (map["id"] as? Number)?.toLong() ?: 0L,
+            name = map["name"] as? String ?: "",
+            description = map["description"] as? String ?: "",
+            category = map["category"] as? String ?: "",
+            imageUrl = map["imageUrl"] as? String ?: "",
+            calories = (map["calories"] as? Number)?.toInt() ?: 0,
+            protein = (map["protein"] as? Number)?.toDouble() ?: 0.0,
+            carbohydrates = (map["carbohydrates"] as? Number)?.toDouble() ?: 0.0,
+            fats = (map["fats"] as? Number)?.toDouble() ?: 0.0,
+            fiber = (map["fiber"] as? Number)?.toDouble() ?: 0.0,
+            sodium = (map["sodium"] as? Number)?.toDouble() ?: 0.0,
+            sugar = (map["sugar"] as? Number)?.toDouble() ?: 0.0,
+            suitableFor = map["suitableFor"] as? String ?: "",
+            ingredients = map["ingredients"] as? String ?: "",
+            instructions = map["instructions"] as? String ?: "",
+            preparationTime = (map["preparationTime"] as? Number)?.toInt() ?: 0,
+            difficulty = map["difficulty"] as? String ?: "",
+            servings = (map["servings"] as? Number)?.toInt() ?: 1,
+            estimatedCost = (map["estimatedCost"] as? Number)?.toDouble() ?: 0.0,
+            allergens = map["allergens"] as? String ?: "",
+            rating = (map["rating"] as? Number)?.toDouble() ?: 0.0,
+            timesUsed = (map["timesUsed"] as? Number)?.toInt() ?: 0,
+            createdAt = (map["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
     }
 
     // ==================== MENU PLAN OPERATIONS ====================
 
     /**
-     * Crea un nuevo plan de menú
+     * Crea un nuevo plan de menú y lo sincroniza con Firebase
      */
     suspend fun createMenuPlan(menuPlan: MenuPlan): Long {
-        // Desactivar planes anteriores
-        menuPlanDao.deactivateAllMenuPlans(menuPlan.userId)
+        try {
+            // Desactivar planes anteriores
+            menuPlanDao.deactivateAllMenuPlans(menuPlan.userId)
 
-        // Insertar nuevo plan
-        val menuPlanId = menuPlanDao.insertMenuPlan(menuPlan)
+            // Insertar nuevo plan en Room
+            val menuPlanId = menuPlanDao.insertMenuPlan(menuPlan)
+            val menuPlanWithId = menuPlan.copy(id = menuPlanId)
 
-        // Incrementar contador de uso de recetas
-        menuPlan.getAllRecipeIds().forEach { recipeId ->
-            recipeDao.incrementTimesUsed(recipeId)
+            // Incrementar contador de uso de recetas
+            menuPlan.getAllRecipeIds().forEach { recipeId ->
+                recipeDao.incrementTimesUsed(recipeId)
+            }
+
+            // Sincronizar con Firebase
+            syncMenuPlanToFirebase(menuPlanWithId)
+
+            return menuPlanId
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating menu plan", e)
+            throw e
         }
-
-        return menuPlanId
     }
 
     /**
@@ -234,6 +406,7 @@ class AppRepository(private val database: AppDatabase) {
      */
     suspend fun updateMenuPlan(menuPlan: MenuPlan) {
         menuPlanDao.updateMenuPlan(menuPlan)
+        syncMenuPlanToFirebase(menuPlan)
     }
 
     /**
@@ -241,6 +414,69 @@ class AppRepository(private val database: AppDatabase) {
      */
     suspend fun deleteMenuPlan(menuPlan: MenuPlan) {
         menuPlanDao.deleteMenuPlan(menuPlan)
+        deleteMenuPlanFromFirebase(menuPlan.id)
+    }
+
+    /**
+     * Sincroniza plan de menú con Firebase
+     */
+    private suspend fun syncMenuPlanToFirebase(menuPlan: MenuPlan) {
+        try {
+            val menuPlanMap = menuPlanToMap(menuPlan)
+            firestore.collection(MENU_PLANS_COLLECTION)
+                .document("${menuPlan.userId}_${menuPlan.id}")
+                .set(menuPlanMap)
+                .await()
+            Log.d(TAG, "Menu plan synced to Firebase: ${menuPlan.id}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing menu plan to Firebase", e)
+        }
+    }
+
+    /**
+     * Elimina plan de menú de Firebase
+     */
+    private suspend fun deleteMenuPlanFromFirebase(menuPlanId: Long) {
+        try {
+            val query = firestore.collection(MENU_PLANS_COLLECTION)
+                .whereEqualTo("id", menuPlanId)
+                .get()
+                .await()
+
+            for (document in query.documents) {
+                document.reference.delete().await()
+            }
+            Log.d(TAG, "Menu plan deleted from Firebase: $menuPlanId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting menu plan from Firebase", e)
+        }
+    }
+
+    /**
+     * Convierte MenuPlan a Map para Firebase
+     */
+    private fun menuPlanToMap(menuPlan: MenuPlan): Map<String, Any> {
+        return hashMapOf(
+            "id" to menuPlan.id,
+            "userId" to menuPlan.userId,
+            "name" to menuPlan.name,
+            "startDate" to menuPlan.startDate,
+            "endDate" to menuPlan.endDate,
+            "monday" to menuPlan.monday,
+            "tuesday" to menuPlan.tuesday,
+            "wednesday" to menuPlan.wednesday,
+            "thursday" to menuPlan.thursday,
+            "friday" to menuPlan.friday,
+            "saturday" to menuPlan.saturday,
+            "sunday" to menuPlan.sunday,
+            "totalCalories" to menuPlan.totalCalories,
+            "totalCost" to menuPlan.totalCost,
+            "averageDailyCalories" to menuPlan.averageDailyCalories,
+            "averageDailyCost" to menuPlan.averageDailyCost,
+            "isActive" to menuPlan.isActive,
+            "isFavorite" to menuPlan.isFavorite,
+            "createdAt" to menuPlan.createdAt
+        )
     }
 
     // ==================== HELPER METHODS ====================
@@ -251,6 +487,7 @@ class AppRepository(private val database: AppDatabase) {
     private fun getSampleRecipes(): List<Recipe> {
         return listOf(
             Recipe(
+                id = 1,
                 name = "Ensalada de Quinoa con Verduras",
                 description = "Ensalada nutritiva y balanceada con quinoa, vegetales frescos y aderezo ligero",
                 category = "Almuerzo",
@@ -273,6 +510,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.5
             ),
             Recipe(
+                id = 2,
                 name = "Pollo a la Plancha con Brócoli",
                 description = "Pechuga de pollo magra acompañada de brócoli al vapor, ideal para diabéticos",
                 category = "Almuerzo",
@@ -295,6 +533,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.7
             ),
             Recipe(
+                id = 3,
                 name = "Avena con Frutas y Canela",
                 description = "Desayuno energético con avena integral, frutas frescas y canela",
                 category = "Desayuno",
@@ -317,6 +556,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.6
             ),
             Recipe(
+                id = 4,
                 name = "Sopa de Verduras Casera",
                 description = "Sopa nutritiva y baja en sodio con vegetales frescos de estación",
                 category = "Cena",
@@ -339,6 +579,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.4
             ),
             Recipe(
+                id = 5,
                 name = "Pescado al Horno con Vegetales",
                 description = "Filete de pescado blanco horneado con vegetales mediterráneos",
                 category = "Cena",
@@ -361,6 +602,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.8
             ),
             Recipe(
+                id = 6,
                 name = "Batido Verde Energético",
                 description = "Batido saludable con espinaca, frutas y semillas para un desayuno rápido",
                 category = "Desayuno",
@@ -383,6 +625,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.3
             ),
             Recipe(
+                id = 7,
                 name = "Ensalada César Saludable",
                 description = "Versión saludable de la ensalada césar con aderezo de yogurt",
                 category = "Almuerzo",
@@ -405,6 +648,7 @@ class AppRepository(private val database: AppDatabase) {
                 rating = 4.5
             ),
             Recipe(
+                id = 8,
                 name = "Tortilla de Claras con Champiñones",
                 description = "Tortilla proteica de claras de huevo con champiñones y espinacas",
                 category = "Desayuno",

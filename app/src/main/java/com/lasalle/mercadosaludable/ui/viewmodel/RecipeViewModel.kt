@@ -12,7 +12,8 @@ import com.lasalle.mercadosaludable.data.repository.AppRepository
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel para gestionar el catálogo de recetas
+ * ViewModel para gestionar el catálogo de recetas.
+ * MODIFICADO: Incluye sincronización automática con Firebase.
  */
 class RecipeViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -29,14 +30,59 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedRecipe = MutableLiveData<Recipe?>()
     val selectedRecipe: LiveData<Recipe?> = _selectedRecipe
 
+    // LiveData para estado de sincronización
+    private val _syncState = MutableLiveData<SyncState>()
+    val syncState: LiveData<SyncState> = _syncState
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = AppRepository(database)
         allRecipes = repository.getAllRecipes()
 
-        // Insertar recetas de ejemplo si la base está vacía
+        // NUEVO: Sincronizar recetas desde Firebase al iniciar
+        syncRecipesFromFirebase()
+    }
+
+    /**
+     * NUEVO: Sincroniza recetas desde Firebase
+     */
+    fun syncRecipesFromFirebase() {
+        _syncState.value = SyncState.Loading
+
         viewModelScope.launch {
-            repository.insertSampleRecipes()
+            try {
+                val result = repository.syncRecipesFromFirebase()
+
+                if (result.isSuccess) {
+                    val count = result.getOrNull() ?: 0
+                    _syncState.value = SyncState.Success(count)
+                } else {
+                    _syncState.value = SyncState.Error(result.exceptionOrNull()?.message ?: "Error al sincronizar")
+                }
+            } catch (e: Exception) {
+                _syncState.value = SyncState.Error(e.message ?: "Error desconocido")
+            }
+        }
+    }
+
+    /**
+     * NUEVO: Guarda una nueva receta en Firebase
+     */
+    fun saveRecipeToFirebase(recipe: Recipe) {
+        _syncState.value = SyncState.Loading
+
+        viewModelScope.launch {
+            try {
+                val result = repository.saveRecipeToFirebase(recipe)
+
+                if (result.isSuccess) {
+                    _syncState.value = SyncState.Success(1)
+                } else {
+                    _syncState.value = SyncState.Error(result.exceptionOrNull()?.message ?: "Error al guardar")
+                }
+            } catch (e: Exception) {
+                _syncState.value = SyncState.Error(e.message ?: "Error desconocido")
+            }
         }
     }
 
@@ -136,5 +182,15 @@ class RecipeViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun clearFilters() {
         _filteredRecipes.value = allRecipes.value
+    }
+
+    /**
+     * Estados de sincronización con Firebase
+     */
+    sealed class SyncState {
+        object Idle : SyncState()
+        object Loading : SyncState()
+        data class Success(val count: Int) : SyncState()
+        data class Error(val message: String) : SyncState()
     }
 }
