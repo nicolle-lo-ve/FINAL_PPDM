@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "422798971006",
+    "project_id": "mercado-saludable-digital",
+    "storage_bucket": "mercado-saludable-digital.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:422798971006:android:dbec01b59ee53d800e082f",
+        "android_client_info": {
+          "package_name": "com.lasalle.mercadosaludable"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_J6zk336u2FgA8Opd7yxJYoxEKhSepdk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
