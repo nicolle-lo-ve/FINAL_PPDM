@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/homeFragment">
+
+    <!-- Home Fragment -->
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.lasalle.mercadosaludable.ui.fragment.HomeFragment"
+        android:label="Inicio">
+        <action
+            android:id="@+id/action_homeFragment_to_recipesFragment"
+            app:destination="@id/recipesFragment" />
+        <action
+            android:id="@+id/action_homeFragment_to_menuPlanFragment"
+            app:destination="@id/menuPlanFragment" />
+    </fragment>
+
+    <!-- Recipes Fragment -->
+    <fragment
+        android:id="@+id/recipesFragment"
+        android:name="com.lasalle.mercadosaludable.ui.fragment.RecipesFragment"
+        android:label="Recetas">
+        <action
+            android:id="@+id/action_recipesFragment_to_recipeDetailFragment"
+            app:destination="@id/recipeDetailFragment" />
+    </fragment>
+
+    <!-- Recipe Detail Fragment -->
+    <fragment
+        android:id="@+id/recipeDetailFragment"
+        android:name="com.lasalle.mercadosaludable.ui.fragment.RecipeDetailFragment"
+        android:label="Detalle de Receta">
+        <argument
+            android:name="recipeId"
+            app:argType="long" />
+    </fragment>
+
+    <!-- Menu Plan Fragment -->
+    <fragment
+        android:id="@+id/menuPlanFragment"
+        android:name="com.lasalle.mercadosaludable.ui.fragment.MenuPlanFragment"
+        android:label="Mi Menú" />
+
+    <!-- Profile Fragment -->
+    <fragment
+        android:id="@+id/profileFragment"
+        android:name="com.lasalle.mercadosaludable.ui.fragment.ProfileFragment"
+        android:label="Perfil" />
+
+</navigation>

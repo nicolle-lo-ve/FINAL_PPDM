@@ -1,3 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Mercado Saludable Digital</string>
+
+    <!-- Authentication -->
+    <string name="login_title">Iniciar Sesión</string>
+    <string name="register_title">Crear Cuenta</string>
+    <string name="email_hint">Correo electrónico</string>
+    <string name="password_hint">Contraseña</string>
+    <string name="confirm_password_hint">Confirmar contraseña</string>
+    <string name="name_hint">Nombre completo</string>
+    <string name="btn_login">Iniciar Sesión</string>
+    <string name="btn_register">Crear Cuenta</string>
+    <string name="go_to_register">¿No tienes cuenta? Regístrate</string>
+    <string name="go_to_login">¿Ya tienes cuenta? Inicia sesión</string>
+
+    <!-- Profile -->
+    <string name="age_hint">Edad</string>
+    <string name="weight_hint">Peso (kg)</string>
+    <string name="height_hint">Altura (cm)</string>
+    <string name="budget_hint">Presupuesto Mensual (S/)</string>
+    <string name="medical_conditions_title">Condiciones Médicas</string>
+    <string name="allergies_title">Alergias Alimentarias</string>
+    <string name="nutritional_goal_title">Objetivo Nutricional</string>
+
+    <!-- Conditions -->
+    <string name="diabetes">Diabetes</string>
+    <string name="hypertension">Hipertensión</string>
+    <string name="obesity">Obesidad</string>
+
+    <!-- Allergies -->
+    <string name="dairy">Lácteos</string>
+    <string name="gluten">Gluten</string>
+    <string name="seafood">Mariscos</string>
+    <string name="eggs">Huevo</string>
+
+    <!-- Goals -->
+    <string name="lose_weight">Perder peso</string>
+    <string name="maintain_weight">Mantener peso</string>
+    <string name="gain_muscle">Ganar músculo</string>
+
+    <!-- Home -->
+    <string name="welcome_message">¡Hola, %s!</string>
+    <string name="bmi_label">IMC:</string>
+    <string name="conditions_label">Condiciones:</string>
+    <string name="no_menu_title">No tienes un menú activo</string>
+    <string name="generate_menu_btn">Generar Nuevo Menú</string>
+    <string name="view_recipes_btn">Ver Recetas</string>
+
+    <!-- Recipes -->
+    <string name="search_recipes_hint">Buscar recetas...</string>
+    <string name="filter_breakfast">Desayuno</string>
+    <string name="filter_lunch">Almuerzo</string>
+    <string name="filter_dinner">Cena</string>
+    <string name="clear_filters">Limpiar Filtros</string>
+    <string name="empty_recipes">No se encontraron recetas</string>
+
+    <!-- Recipe Detail -->
+    <string name="calories_label">Calorías:</string>
+    <string name="protein_label">Proteínas:</string>
+    <string name="carbs_label">Carbohidratos:</string>
+    <string name="fats_label">Grasas:</string>
+    <string name="fiber_label">Fibra:</string>
+    <string name="time_label">Tiempo:</string>
+    <string name="difficulty_label">Dificultad:</string>
+    <string name="servings_label">Porciones:</string>
+    <string name="cost_label">Costo estimado:</string>
+    <string name="ingredients_title">Ingredientes</string>
+    <string name="instructions_title">Instrucciones</string>
+
+    <!-- Menu Plan -->
+    <string name="menu_plan_title">Mi Menú Semanal</string>
+    <string name="total_cost_label">Costo Total:</string>
+    <string name="avg_calories_label">Calorías/día:</string>
+    <string name="generating_menu">Generando menú...</string>
+    <string name="menu_generated">Menú generado con éxito</string>
+
+    <!-- Profile -->
+    <string name="profile_title">Mi Perfil</string>
+    <string name="logout_btn">Cerrar Sesión</string>
+    <string name="edit_profile_btn">Editar Perfil</string>
+
+    <!-- Errors -->
+    <string name="error_empty_fields">Por favor completa todos los campos</string>
+    <string name="error_invalid_email">Email inválido</string>
+    <string name="error_short_password">La contraseña debe tener al menos 6 caracteres</string>
+    <string name="error_password_mismatch">Las contraseñas no coinciden</string>
+    <string name="error_login_failed">Error al iniciar sesión</string>
+    <string name="error_register_failed">Error al registrar usuario</string>
+    <string name="error_generating_menu">Error al generar menú</string>
+
+    <!-- Days of week -->
+    <string name="monday">Lunes</string>
+    <string name="tuesday">Martes</string>
+    <string name="wednesday">Miércoles</string>
+    <string name="thursday">Jueves</string>
+    <string name="friday">Viernes</string>
+    <string name="saturday">Sábado</string>
+    <string name="sunday">Domingo</string>
 </resources>
