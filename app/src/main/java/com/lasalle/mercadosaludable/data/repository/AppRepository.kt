@@ -45,21 +45,52 @@ class AppRepository(private val database: AppDatabase) {
      */
     suspend fun registerUser(email: String, password: String, user: User): Result<String> {
         return try {
+            Log.d(TAG, ">>> registerUser() iniciado")
+            Log.d(TAG, "Email: $email")
+            Log.d(TAG, "Usuario: ${user.name}")
+
+            // Verificar que Firebase Auth esté inicializado
+            if (auth == null) {
+                Log.e(TAG, "❌ Firebase Auth es NULL!")
+                return Result.failure(Exception("Firebase Auth no inicializado"))
+            }
+
+            Log.d(TAG, "Firebase Auth OK, creando usuario...")
+
+            // Crear usuario en Firebase Auth
             val authResult = auth.createUserWithEmailAndPassword(email, password).await()
-            val userId = authResult.user?.uid ?: throw Exception("Error al crear usuario")
+            Log.d(TAG, "createUserWithEmailAndPassword completado")
+
+            val userId = authResult.user?.uid
+            if (userId == null) {
+                Log.e(TAG, "❌ userId es NULL después de crear usuario")
+                return Result.failure(Exception("Error al obtener ID de usuario"))
+            }
+
+            Log.d(TAG, "✅ Usuario creado en Firebase Auth con ID: $userId")
 
             // Actualizar el user con el ID de Firebase
             val updatedUser = user.copy(id = userId)
+            Log.d(TAG, "User actualizado con ID: ${updatedUser.id}")
 
-            // Guardar localmente
+            // Guardar localmente en Room
+            Log.d(TAG, "Guardando usuario en Room...")
             userDao.insertUser(updatedUser)
+            Log.d(TAG, "✅ Usuario guardado en Room")
 
-            // Sincronizar con Firebase
+            // Sincronizar con Firestore
+            Log.d(TAG, "Sincronizando con Firestore...")
             syncUserToFirebase(updatedUser)
+            Log.d(TAG, "✅ Usuario sincronizado con Firestore")
 
+            Log.d(TAG, "<<< registerUser() completado exitosamente")
             Result.success(userId)
         } catch (e: Exception) {
-            Log.e(TAG, "Error registering user", e)
+            Log.e(TAG, "❌❌❌ Error en registerUser", e)
+            Log.e(TAG, "Tipo de error: ${e.javaClass.simpleName}")
+            Log.e(TAG, "Mensaje: ${e.message}")
+            Log.e(TAG, "Stack trace:")
+            e.printStackTrace()
             Result.failure(e)
         }
     }
@@ -112,13 +143,27 @@ class AppRepository(private val database: AppDatabase) {
      */
     private suspend fun syncUserToFirebase(user: User) {
         try {
+            Log.d(TAG, ">>> syncUserToFirebase iniciado para user: ${user.id}")
+
+            if (firestore == null) {
+                Log.e(TAG, "❌ Firestore es NULL!")
+                return
+            }
+
+            Log.d(TAG, "Guardando en colección: $USERS_COLLECTION")
+            Log.d(TAG, "Documento ID: ${user.id}")
+
             firestore.collection(USERS_COLLECTION)
                 .document(user.id)
                 .set(user)
                 .await()
-            Log.d(TAG, "User synced to Firebase: ${user.id}")
+
+            Log.d(TAG, "✅ Usuario sincronizado con Firestore: ${user.id}")
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing user to Firebase", e)
+            Log.e(TAG, "❌ Error sincronizando usuario con Firestore", e)
+            Log.e(TAG, "Mensaje: ${e.message}")
+            e.printStackTrace()
+            // No lanzamos la excepción aquí porque el registro local ya funcionó
         }
     }
 

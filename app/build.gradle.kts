@@ -30,12 +30,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17  // CAMBIADO de 1.8 a 17
+        targetCompatibility = JavaVersion.VERSION_17  // CAMBIADO de 1.8 a 17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"  // CAMBIADO de "1.8" a "17"
     }
 
     buildFeatures {
@@ -64,10 +64,10 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
-    // Firebase (BOM maneja las versiones automáticamente)
+    // Firebase - DEJA SOLO ESTAS LÍNEAS (BOM maneja las versiones)
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
-    implementation("com.google.firebase:firebase-auth-ktx:22.3.1")
-    implementation("com.google.firebase:firebase-firestore-ktx:24.10.1")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

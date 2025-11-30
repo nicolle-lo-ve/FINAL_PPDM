@@ -1,6 +1,7 @@
 package com.lasalle.mercadosaludable.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -12,7 +13,7 @@ import kotlinx.coroutines.launch
 
 /**
  * ViewModel para manejar la autenticación de usuarios.
- * MODIFICADO: Sincroniza automáticamente recetas desde Firebase al hacer login.
+ * MODIFICADO: Logs detallados para debugging
  */
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -30,6 +31,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val _syncProgress = MutableLiveData<String>()
     val syncProgress: LiveData<String> = _syncProgress
 
+    companion object {
+        private const val TAG = "AuthViewModel"
+    }
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = AppRepository(database)
@@ -37,7 +42,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Registra un nuevo usuario
+     * Registra un nuevo usuario - CON LOGS DETALLADOS
      */
     fun register(
         name: String,
@@ -52,35 +57,49 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         nutritionalGoal: String,
         monthlyBudget: Double
     ) {
+        Log.d(TAG, "=== INICIO REGISTRO ===")
+        Log.d(TAG, "Nombre: $name")
+        Log.d(TAG, "Email: $email")
+        Log.d(TAG, "Edad: $age")
+        Log.d(TAG, "Peso: $weight, Altura: $height")
+
         // Validaciones
         if (name.isBlank()) {
+            Log.e(TAG, "ERROR: Nombre vacío")
             _errorMessage.value = "El nombre es requerido"
             return
         }
         if (email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            Log.e(TAG, "ERROR: Email inválido: $email")
             _errorMessage.value = "Email inválido"
             return
         }
         if (password.length < 6) {
+            Log.e(TAG, "ERROR: Contraseña muy corta")
             _errorMessage.value = "La contraseña debe tener al menos 6 caracteres"
             return
         }
         if (age < 18 || age > 100) {
+            Log.e(TAG, "ERROR: Edad inválida: $age")
             _errorMessage.value = "Edad inválida"
             return
         }
         if (weight <= 0 || height <= 0) {
+            Log.e(TAG, "ERROR: Peso o altura inválidos: $weight, $height")
             _errorMessage.value = "Peso y altura deben ser mayores a 0"
             return
         }
 
+        Log.d(TAG, "Validaciones pasadas, iniciando registro...")
         _authState.value = AuthState.Loading
         _syncProgress.value = "Creando cuenta..."
 
         viewModelScope.launch {
             try {
+                Log.d(TAG, "Calculando IMC...")
                 // Calcular IMC
                 val bmi = User.calculateBMI(weight, height)
+                Log.d(TAG, "IMC calculado: $bmi")
 
                 // Crear objeto User
                 val user = User(
@@ -98,24 +117,36 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     monthlyBudget = monthlyBudget
                 )
 
+                Log.d(TAG, "User object creado: ${user.name}, ${user.email}")
+                Log.d(TAG, "Llamando a repository.registerUser()...")
+
                 // Registrar en el repository
                 val result = repository.registerUser(email, password, user)
 
+                Log.d(TAG, "Resultado del registro: ${result.isSuccess}")
+
                 if (result.isSuccess) {
                     val userId = result.getOrNull()!!
+                    Log.d(TAG, "✅ Usuario registrado exitosamente con ID: $userId")
 
-                    // NUEVO: Sincronizar recetas después del registro
+                    // Sincronizar recetas
+                    Log.d(TAG, "Sincronizando recetas...")
                     _syncProgress.value = "Cargando recetas saludables..."
                     repository.syncRecipesFromFirebase()
+                    Log.d(TAG, "Recetas sincronizadas")
 
                     _authState.value = AuthState.Authenticated(userId)
                     _syncProgress.value = ""
+                    Log.d(TAG, "=== REGISTRO COMPLETADO ===")
                 } else {
-                    _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Error al registrar")
-                    _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al registrar"
+                    val error = result.exceptionOrNull()
+                    Log.e(TAG, "❌ Error en el registro: ${error?.message}", error)
+                    _authState.value = AuthState.Error(error?.message ?: "Error al registrar")
+                    _errorMessage.value = error?.message ?: "Error al registrar"
                     _syncProgress.value = ""
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "❌ Excepción durante el registro", e)
                 _authState.value = AuthState.Error(e.message ?: "Error desconocido")
                 _errorMessage.value = e.message ?: "Error desconocido"
                 _syncProgress.value = ""
@@ -125,10 +156,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Inicia sesión con email y contraseña.
-     * MODIFICADO: Sincroniza automáticamente recetas desde Firebase.
      */
     fun login(email: String, password: String) {
+        Log.d(TAG, "=== INICIO LOGIN ===")
+        Log.d(TAG, "Email: $email")
+
         if (email.isBlank() || password.isBlank()) {
+            Log.e(TAG, "ERROR: Email o contraseña vacíos")
             _errorMessage.value = "Email y contraseña son requeridos"
             return
         }
@@ -138,23 +172,28 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                // Login en repository (ya incluye sincronización de recetas)
+                Log.d(TAG, "Llamando a repository.loginUser()...")
                 val result = repository.loginUser(email, password)
+
+                Log.d(TAG, "Resultado del login: ${result.isSuccess}")
 
                 if (result.isSuccess) {
                     val userId = result.getOrNull()!!
+                    Log.d(TAG, "✅ Login exitoso con ID: $userId")
 
-                    // El repository ya sincronizó las recetas automáticamente
                     _syncProgress.value = "Cargando datos..."
-
                     _authState.value = AuthState.Authenticated(userId)
                     _syncProgress.value = ""
+                    Log.d(TAG, "=== LOGIN COMPLETADO ===")
                 } else {
-                    _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Error al iniciar sesión")
-                    _errorMessage.value = result.exceptionOrNull()?.message ?: "Error al iniciar sesión"
+                    val error = result.exceptionOrNull()
+                    Log.e(TAG, "❌ Error en el login: ${error?.message}", error)
+                    _authState.value = AuthState.Error(error?.message ?: "Error al iniciar sesión")
+                    _errorMessage.value = error?.message ?: "Error al iniciar sesión"
                     _syncProgress.value = ""
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "❌ Excepción durante el login", e)
                 _authState.value = AuthState.Error(e.message ?: "Error desconocido")
                 _errorMessage.value = e.message ?: "Error desconocido"
                 _syncProgress.value = ""

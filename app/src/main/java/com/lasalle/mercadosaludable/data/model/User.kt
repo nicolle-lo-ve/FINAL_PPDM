@@ -3,40 +3,39 @@ package com.lasalle.mercadosaludable.data.model
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/**
- * Entidad que representa el perfil de un usuario en la base de datos Room.
- * Almacena información personal, datos de salud y preferencias alimentarias.
- */
 @Entity(tableName = "users")
 data class User(
     @PrimaryKey
-    val id: String, // ID de Firebase Auth
+    val id: String = "", // ID de Firebase Auth
 
     // Datos personales
-    val name: String,
-    val email: String,
-    val age: Int,
-    val gender: String, // "Masculino", "Femenino", "Otro"
+    val name: String = "",
+    val email: String = "",
+    val age: Int = 0,
+    val gender: String = "", // "Masculino", "Femenino", "Otro"
 
     // Datos de salud
-    val weight: Double, // Peso en kg
-    val height: Double, // Altura en cm
-    val bmi: Double, // Índice de Masa Corporal calculado
+    val weight: Double = 0.0,
+    val height: Double = 0.0,
+    val bmi: Double = 0.0,
 
     // Condiciones médicas (separadas por comas)
-    val medicalConditions: String, // "diabetes,hipertension,obesidad"
+    val medicalConditions: String = "", // "diabetes,hipertension,obesidad"
 
     // Alergias alimentarias (separadas por comas)
-    val allergies: String, // "lacteos,gluten,mariscos"
+    val allergies: String = "", // "lacteos,gluten,mariscos"
 
     // Objetivos nutricionales
-    val nutritionalGoal: String, // "perder_peso", "mantener", "ganar_musculo"
-    val monthlyBudget: Double, // Presupuesto mensual en soles
+    val nutritionalGoal: String = "", // "perder_peso", "mantener", "ganar_musculo"
+    val monthlyBudget: Double = 0.0, // Presupuesto mensual en soles
 
     // Metadata
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
+    // Constructor sin argumentos requerido por Firestore
+    constructor() : this("", "", "", 0, "", 0.0, 0.0, 0.0, "", "", "", 0.0, System.currentTimeMillis(), System.currentTimeMillis())
+
     /**
      * Calcula el IMC basado en peso y altura
      */
