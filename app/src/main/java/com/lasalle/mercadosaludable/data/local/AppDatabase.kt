@@ -71,6 +71,8 @@ interface RecipeDao {
 
     @Query("SELECT * FROM recipes ORDER BY rating DESC, timesUsed DESC LIMIT :limit")
     fun getPopularRecipes(limit: Int): LiveData<List<Recipe>>
+    @Query("SELECT * FROM recipes")
+    suspend fun getAllRecipesList(): List<Recipe>
 }
 
 /**

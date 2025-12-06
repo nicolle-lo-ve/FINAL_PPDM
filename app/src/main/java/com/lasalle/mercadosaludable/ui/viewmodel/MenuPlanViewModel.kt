@@ -1,6 +1,7 @@
 package com.lasalle.mercadosaludable.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -13,10 +14,9 @@ import com.lasalle.mercadosaludable.data.repository.AppRepository
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
-
-
 /**
- * ViewModel para gestionar planes de menú semanales
+ * ViewModel para gestionar planes de menú semanales.
+ * CORREGIDO: Mejor manejo de errores y validaciones.
  */
 class MenuPlanViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -38,9 +38,14 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
     private val _menuHistory = MutableLiveData<List<MenuPlan>>()
     val menuHistory: LiveData<List<MenuPlan>> = _menuHistory
 
+    companion object {
+        private const val TAG = "MenuPlanViewModel"
+    }
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = AppRepository(database)
+        _generationState.value = GenerationState.Idle
     }
 
     /**
@@ -55,6 +60,7 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
                 // Cargar recetas del plan
                 plan?.let { loadMenuRecipes(it) }
             } catch (e: Exception) {
+                Log.e(TAG, "Error loading active menu plan", e)
                 _generationState.value = GenerationState.Error(e.message ?: "Error al cargar plan")
             }
         }
@@ -64,32 +70,47 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
      * Carga las recetas de un plan de menú
      */
     private suspend fun loadMenuRecipes(menuPlan: MenuPlan) {
-        val recipesMap = mutableMapOf<Int, List<Recipe>>()
+        try {
+            val recipesMap = mutableMapOf<Int, List<Recipe>>()
 
-        for (day in 0..6) {
-            val recipeIds = menuPlan.getRecipesForDay(day)
-            if (recipeIds.isNotEmpty()) {
-                val recipes = repository.getRecipesByIds(recipeIds)
-                recipesMap[day] = recipes
+            for (day in 0..6) {
+                val recipeIds = menuPlan.getRecipesForDay(day)
+                if (recipeIds.isNotEmpty()) {
+                    val recipes = repository.getRecipesByIds(recipeIds)
+                    recipesMap[day] = recipes
+                }
             }
-        }
 
-        _menuRecipes.value = recipesMap
+            _menuRecipes.value = recipesMap
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading menu recipes", e)
+        }
     }
 
     /**
-     * Genera un nuevo plan de menú semanal
+     * Genera un nuevo plan de menú semanal.
+     * CORREGIDO: Usa getAllRecipesDirect() en lugar de LiveData.value
      */
     fun generateWeeklyMenu(user: User) {
         _generationState.value = GenerationState.Loading
 
         viewModelScope.launch {
             try {
-                // Obtener todas las recetas disponibles
-                val allRecipes = repository.getAllRecipes().value ?: emptyList()
+                Log.d(TAG, "=== INICIO GENERACIÓN DE MENÚ ===")
+                Log.d(TAG, "Usuario: ${user.name}")
+                Log.d(TAG, "Condiciones: ${user.getMedicalConditionsList()}")
+                Log.d(TAG, "Alergias: ${user.getAllergiesList()}")
+
+                // CORREGIDO: Obtener recetas de forma directa (no desde LiveData.value)
+                val allRecipes = repository.getAllRecipesDirect()
+
+                Log.d(TAG, "Total recetas obtenidas: ${allRecipes.size}")
 
                 if (allRecipes.isEmpty()) {
-                    _generationState.value = GenerationState.Error("No hay recetas disponibles")
+                    Log.e(TAG, "❌ NO HAY RECETAS DISPONIBLES")
+                    _generationState.value = GenerationState.Error(
+                        "No hay recetas disponibles. Por favor, espera mientras se sincronizan desde Firebase."
+                    )
                     return@launch
                 }
 
@@ -98,11 +119,17 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
                 val userAllergies = user.getAllergiesList()
 
                 val compatibleRecipes = allRecipes.filter { recipe ->
-                    recipe.isCompatibleWith(userConditions) && !recipe.hasAllergens(userAllergies)
+                    val isCompatible = recipe.isCompatibleWith(userConditions)
+                    val hasNoAllergens = !recipe.hasAllergens(userAllergies)
+                    isCompatible && hasNoAllergens
                 }
 
+                Log.d(TAG, "Recetas compatibles: ${compatibleRecipes.size}")
+
                 if (compatibleRecipes.isEmpty()) {
-                    _generationState.value = GenerationState.Error("No hay recetas compatibles con tu perfil")
+                    _generationState.value = GenerationState.Error(
+                        "No se encontraron recetas compatibles con tu perfil de salud."
+                    )
                     return@launch
                 }
 
@@ -110,6 +137,24 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
                 val breakfastRecipes = compatibleRecipes.filter { it.category == "Desayuno" }
                 val lunchRecipes = compatibleRecipes.filter { it.category == "Almuerzo" }
                 val dinnerRecipes = compatibleRecipes.filter { it.category == "Cena" }
+
+                Log.d(TAG, "Desayunos: ${breakfastRecipes.size}")
+                Log.d(TAG, "Almuerzos: ${lunchRecipes.size}")
+                Log.d(TAG, "Cenas: ${dinnerRecipes.size}")
+
+                // Validar que hay al menos una receta de cada categoría
+                if (breakfastRecipes.isEmpty()) {
+                    _generationState.value = GenerationState.Error("No hay desayunos disponibles para tu perfil")
+                    return@launch
+                }
+                if (lunchRecipes.isEmpty()) {
+                    _generationState.value = GenerationState.Error("No hay almuerzos disponibles para tu perfil")
+                    return@launch
+                }
+                if (dinnerRecipes.isEmpty()) {
+                    _generationState.value = GenerationState.Error("No hay cenas disponibles para tu perfil")
+                    return@launch
+                }
 
                 // Generar menú para 7 días
                 val weekMenu = mutableListOf<String>()
@@ -119,31 +164,26 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
                 for (day in 0..6) {
                     val dayRecipes = mutableListOf<Long>()
 
-                    // Seleccionar desayuno
-                    if (breakfastRecipes.isNotEmpty()) {
-                        val breakfast = breakfastRecipes.random()
-                        dayRecipes.add(breakfast.id)
-                        totalCalories += breakfast.calories
-                        totalCost += breakfast.estimatedCost
-                    }
+                    // Seleccionar desayuno aleatorio
+                    val breakfast = breakfastRecipes.random()
+                    dayRecipes.add(breakfast.id)
+                    totalCalories += breakfast.calories
+                    totalCost += breakfast.estimatedCost
 
-                    // Seleccionar almuerzo
-                    if (lunchRecipes.isNotEmpty()) {
-                        val lunch = lunchRecipes.random()
-                        dayRecipes.add(lunch.id)
-                        totalCalories += lunch.calories
-                        totalCost += lunch.estimatedCost
-                    }
+                    // Seleccionar almuerzo aleatorio
+                    val lunch = lunchRecipes.random()
+                    dayRecipes.add(lunch.id)
+                    totalCalories += lunch.calories
+                    totalCost += lunch.estimatedCost
 
-                    // Seleccionar cena
-                    if (dinnerRecipes.isNotEmpty()) {
-                        val dinner = dinnerRecipes.random()
-                        dayRecipes.add(dinner.id)
-                        totalCalories += dinner.calories
-                        totalCost += dinner.estimatedCost
-                    }
+                    // Seleccionar cena aleatoria
+                    val dinner = dinnerRecipes.random()
+                    dayRecipes.add(dinner.id)
+                    totalCalories += dinner.calories
+                    totalCost += dinner.estimatedCost
 
                     weekMenu.add(dayRecipes.joinToString(","))
+                    Log.d(TAG, "Día $day: Desayuno=${breakfast.name}, Almuerzo=${lunch.name}, Cena=${dinner.name}")
                 }
 
                 // Calcular fechas
@@ -155,6 +195,11 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
                 // Calcular promedios
                 val avgDailyCalories = totalCalories / 7
                 val avgDailyCost = totalCost / 7
+
+                Log.d(TAG, "Total calorías: $totalCalories")
+                Log.d(TAG, "Total costo: S/ $totalCost")
+                Log.d(TAG, "Promedio diario calorías: $avgDailyCalories kcal")
+                Log.d(TAG, "Promedio diario costo: S/ $avgDailyCost")
 
                 // Crear el plan de menú
                 val menuPlan = MenuPlan(
@@ -178,15 +223,23 @@ class MenuPlanViewModel(application: Application) : AndroidViewModel(application
 
                 // Guardar el plan
                 val menuPlanId = repository.createMenuPlan(menuPlan)
-                _activeMenuPlan.value = menuPlan.copy(id = menuPlanId)
+                val savedPlan = menuPlan.copy(id = menuPlanId)
+
+                _activeMenuPlan.value = savedPlan
 
                 // Cargar recetas del nuevo plan
-                loadMenuRecipes(menuPlan.copy(id = menuPlanId))
+                loadMenuRecipes(savedPlan)
 
-                _generationState.value = GenerationState.Success(menuPlan.copy(id = menuPlanId))
+                Log.d(TAG, "✅ Menú creado exitosamente con ID: $menuPlanId")
+                Log.d(TAG, "=== FIN GENERACIÓN DE MENÚ ===")
+
+                _generationState.value = GenerationState.Success(savedPlan)
 
             } catch (e: Exception) {
-                _generationState.value = GenerationState.Error(e.message ?: "Error al generar menú")
+                Log.e(TAG, "❌ Error generando menú", e)
+                _generationState.value = GenerationState.Error(
+                    "Error al generar menú: ${e.message ?: "Error desconocido"}"
+                )
             }
         }
     }

@@ -195,6 +195,39 @@ class AppRepository(private val database: AppDatabase) {
         return recipeDao.getAllRecipes()
     }
 
+    suspend fun getAllRecipesDirect(): List<Recipe> {
+        return try {
+            Log.d(TAG, ">>> getAllRecipesDirect() iniciado")
+
+            // Consultar directamente desde Room sin LiveData
+            // <List<Recipe> directamente
+            val recipes = recipeDao.getAllRecipesList()
+
+            Log.d(TAG, "Recetas obtenidas desde Room: ${recipes.size}")
+
+            // Si no hay recetas, sincronizar desde Firebase
+            if (recipes.isEmpty()) {
+                Log.d(TAG, "No hay recetas en Room, sincronizando desde Firebase...")
+                val syncResult = syncRecipesFromFirebase()
+
+                if (syncResult.isSuccess) {
+                    // Intentar obtener nuevamente
+                    val newRecipes = recipeDao.getAllRecipesList()
+                    Log.d(TAG, "Recetas después de sincronizar: ${newRecipes.size}")
+                    newRecipes
+                } else {
+                    Log.e(TAG, "Error al sincronizar recetas")
+                    emptyList()
+                }
+            } else {
+                recipes
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en getAllRecipesDirect", e)
+            emptyList()
+        }
+    }
+
     /**
      * Obtiene una receta por ID
      */
