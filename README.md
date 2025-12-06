@@ -68,7 +68,7 @@ La aplicación combina **Firebase** para autenticación y sincronización en la 
 
 ### 1. Clonar el Repositorio
 ```bash
-git clone https://github.com/tuusuario/mercado-saludable.git
+https://github.com/nicolle-lo-ve/FINAL_PPDM.git
 cd mercado-saludable
 ```
 
